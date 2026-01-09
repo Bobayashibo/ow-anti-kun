@@ -1,3 +1,12 @@
+let LANGS = [];
+let DEFAULT_LANG = "ja";
+let STRINGS = {};
+let HERO_NAMES = {};
+let i18nReady = false;
+
+const LANGUAGE_STORAGE_KEY = "ow-anti-kun-language";
+let currentLang = DEFAULT_LANG;
+
 const HERO_DATA = [
     { id: "dva", name: "D.Va", role: "tank", archetype: 'dive', matchups: { dive: 2, rush: 1, poke: 3 }, antis: { "ザリア": 3, "シンメトラ": 2, "ブリギッテ": 1, "メイ": 2, "ロードホッグ": 1 } },
     { id: "doomfist", name: "ドゥームフィスト", role: "tank", archetype: 'dive', matchups: { dive: 2, rush: 2, poke: 2 }, antis: { "オリーサ": 3, "アナ": 2, "エコー": 2, "トールビョーン": 1, "ブリギッテ": 2, "ファラ": 2, "ロードホッグ": 3, "ソンブラ": 2 } },
@@ -46,6 +55,216 @@ const HERO_DATA = [
     { id: "zenyatta", name: "ゼニヤッタ", role: "support", archetype: 'poke', matchups: { dive: 1, rush: 2, poke: 2 }, antis: { "レッキング・ボール": 2, "ドゥームフィスト": 2, "ジャンカークイーン": 1, "D.Va": 2, "ベンチャー": 3, "ソンブラ": 2, "トレーサー": 3, "ゲンジ": 3 } }
 ];
 
+const HERO_IDS = new Set(HERO_DATA.map(hero => hero.id));
+const HERO_ID_TO_NAME = Object.fromEntries(HERO_DATA.map(hero => [hero.id, hero.name]));
+const HERO_NAME_TO_ID = {};
+const HERO_NAME_TO_ID_LOOSE = {};
+const FALLBACK_STRINGS = {
+    roles: {
+        tank: "タンク",
+        damage: "ダメージ",
+        support: "サポート",
+        empty: "（空き）"
+    },
+    archetypes: {
+        dive: "ダイブ",
+        rush: "ラッシュ",
+        poke: "ポーク",
+        null: "null"
+    },
+    labels: {
+        strongVs: "{archetype}に強い",
+        weakVs: "{archetype}に弱い",
+        strongAgainst: "{name}に強い",
+        slightStrongAgainst: "{name}にちょっと強い",
+        weakAgainst: "{name}に弱い",
+        slightWeakAgainst: "{name}にちょっと弱い"
+    }
+};
+
+function normalizeNameKey(name) {
+    return name.toLowerCase().replace(/[\s:'.・\-]/g, "");
+}
+
+function resetMap(map) {
+    Object.keys(map).forEach(key => delete map[key]);
+}
+
+function rebuildNameMaps() {
+    resetMap(HERO_NAME_TO_ID);
+    resetMap(HERO_NAME_TO_ID_LOOSE);
+    const sources = [];
+    if (HERO_NAMES && typeof HERO_NAMES === "object") {
+        if (HERO_NAMES.ja) sources.push(HERO_NAMES.ja);
+        if (HERO_NAMES.en) sources.push(HERO_NAMES.en);
+    }
+    sources.push(HERO_ID_TO_NAME);
+    sources.forEach(map => {
+        Object.entries(map).forEach(([id, name]) => {
+            if (!HERO_IDS.has(id)) return;
+            HERO_NAME_TO_ID[name] = id;
+            HERO_NAME_TO_ID_LOOSE[normalizeNameKey(name)] = id;
+        });
+    });
+    HERO_NAME_TO_ID["ソルジャー"] = "soldier-76";
+    HERO_NAME_TO_ID_LOOSE[normalizeNameKey("ソルジャー")] = "soldier-76";
+}
+
+function applyI18n(i18n) {
+    if (i18n && typeof i18n === "object") {
+        LANGS = Array.isArray(i18n.LANGS) ? i18n.LANGS : [];
+        DEFAULT_LANG = i18n.DEFAULT_LANG || "ja";
+        STRINGS = i18n.STRINGS || {};
+        HERO_NAMES = i18n.HERO_NAMES || {};
+        i18nReady = true;
+    } else {
+        LANGS = [{ code: "ja", label: "日本語" }];
+        DEFAULT_LANG = "ja";
+        STRINGS = {};
+        HERO_NAMES = {};
+        i18nReady = false;
+    }
+    rebuildNameMaps();
+}
+
+function ensureI18n() {
+    if (window.I18N) {
+        applyI18n(window.I18N);
+        return Promise.resolve();
+    }
+    return new Promise(resolve => {
+        const script = document.createElement("script");
+        script.src = "i18n.js";
+        script.async = true;
+        script.onload = () => {
+            applyI18n(window.I18N);
+            resolve();
+        };
+        script.onerror = () => {
+            applyI18n(null);
+            resolve();
+        };
+        document.head.appendChild(script);
+    });
+}
+
+function normalizeAntis(antis, ownerId) {
+    const normalized = {};
+    const unknown = [];
+    Object.entries(antis).forEach(([name, value]) => {
+        const id = HERO_NAME_TO_ID[name]
+            || HERO_NAME_TO_ID_LOOSE[normalizeNameKey(name)]
+            || (HERO_IDS.has(name) ? name : null);
+        if (!id) {
+            unknown.push(name);
+            return;
+        }
+        normalized[id] = value;
+    });
+    if (unknown.length) {
+        console.warn(`[i18n] Unmapped antis entries for ${ownerId}: ${unknown.join(", ")}`);
+    }
+    return normalized;
+}
+
+function getNestedValue(obj, path) {
+    return path.split(".").reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
+}
+
+function t(key) {
+    const primary = getNestedValue(STRINGS[currentLang], key);
+    if (primary !== undefined) return primary;
+    const fallback = getNestedValue(STRINGS[DEFAULT_LANG], key);
+    if (fallback !== undefined) return fallback;
+    const localFallback = getNestedValue(FALLBACK_STRINGS, key);
+    if (localFallback !== undefined) return localFallback;
+    return key;
+}
+
+function format(template, vars) {
+    return template.replace(/\{(\w+)\}/g, (_, key) => (vars[key] !== undefined ? vars[key] : ""));
+}
+
+function heroName(id) {
+    const names = HERO_NAMES[currentLang] || {};
+    const fallback = HERO_NAMES[DEFAULT_LANG] || {};
+    return names[id] || fallback[id] || HERO_ID_TO_NAME[id] || id;
+}
+
+function archetypeLabel(archetype) {
+    return t(`archetypes.${archetype}`) || archetype;
+}
+
+function safeStorageGet(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch (e) {
+        return null;
+    }
+}
+
+function safeStorageSet(key, value) {
+    try {
+        localStorage.setItem(key, value);
+    } catch (e) {
+        // Ignore storage errors (private mode, blocked, etc).
+    }
+}
+
+function isSupportedLanguage(lang) {
+    return LANGS.some(({ code }) => code === lang);
+}
+
+function detectLanguage() {
+    const params = new URLSearchParams(window.location.search);
+    const urlLang = params.get("lang");
+    const storedLang = safeStorageGet(LANGUAGE_STORAGE_KEY);
+    const navLang = ((navigator.languages && navigator.languages[0]) || navigator.language || "").toLowerCase().split("-")[0];
+    return [urlLang, storedLang, navLang, DEFAULT_LANG].find(isSupportedLanguage) || DEFAULT_LANG;
+}
+
+function applyTranslations() {
+    if (!i18nReady) return;
+    document.querySelectorAll("[data-i18n]").forEach(el => {
+        const key = el.getAttribute("data-i18n");
+        const value = t(key);
+        if (typeof value === "string") {
+            el.textContent = value;
+        }
+    });
+    document.documentElement.lang = currentLang;
+    document.title = t("ui.title");
+}
+
+function setupLanguageSelector() {
+    const select = document.getElementById("language-select");
+    if (!select) return;
+    select.innerHTML = LANGS.map(({ code, label }) => `<option value="${code}">${label}</option>`).join("");
+    select.addEventListener("change", event => setLanguage(event.target.value));
+}
+
+function setLanguage(lang, { save = true } = {}) {
+    const nextLang = isSupportedLanguage(lang) ? lang : DEFAULT_LANG;
+    currentLang = nextLang;
+    if (save) safeStorageSet(LANGUAGE_STORAGE_KEY, nextLang);
+    const select = document.getElementById("language-select");
+    if (select) select.value = nextLang;
+    applyTranslations();
+    updateUI();
+    if (document.getElementById("db-modal")?.classList.contains("open")) {
+        renderDbTable();
+    }
+}
+
+let antisNormalized = false;
+function normalizeAllAntis() {
+    if (antisNormalized) return;
+    HERO_DATA.forEach(hero => {
+        hero.antis = normalizeAntis(hero.antis, hero.id);
+    });
+    antisNormalized = true;
+}
+
 let selectedHeroes = [];
 let isRoleQueue = true;
 let apiImages = {};
@@ -60,11 +279,16 @@ async function fetchImages() {
     } catch (e) { return {}; }
 }
 
-window.onload = async () => {
+async function init() {
+    await ensureI18n();
+    normalizeAllAntis();
+    setupLanguageSelector();
+    setLanguage(detectLanguage(), { save: false });
     apiImages = await fetchImages();
-    changeTab('tank');
     updateUI();
-};
+}
+
+window.addEventListener("load", init);
 
 function toggleRoleQueue() {
     isRoleQueue = !isRoleQueue;
@@ -104,9 +328,9 @@ function renderHeroGrid(role) {
         const card = document.createElement('div');
         card.className = `hero-card rounded-lg ${isSelected ? 'active' : ''}`;
         card.innerHTML = `
-            <div class="badge badge-${hero.archetype}">${hero.archetype}</div>
+            <div class="badge badge-${hero.archetype}">${archetypeLabel(hero.archetype)}</div>
             <div class="hero-img-container"><img src="${apiImages[hero.id] || `https://static.playoverwatch.com/heroportrait/${hero.id}.png`}" class="hero-img"></div>
-            <div class="hero-label">${hero.name}</div>
+            <div class="hero-label">${heroName(hero.id)}</div>
         `;
         card.onclick = () => toggleHero(hero);
         grid.appendChild(card);
@@ -163,6 +387,8 @@ function updateUI() {
     if (currentTabBtn) {
         const currentTab = currentTabBtn.id.replace('tab-', '');
         renderHeroGrid(currentTab);
+    } else {
+        changeTab("tank");
     }
     calculateTeamAntis();
 }
@@ -174,11 +400,11 @@ function renderSlot(container, hero, fixedRole) {
     if (hero) {
         slot.onclick = () => removeHero(hero);
         slot.innerHTML = `
-            <div class="badge badge-${hero.archetype}">${hero.archetype}</div>
+            <div class="badge badge-${hero.archetype}">${archetypeLabel(hero.archetype)}</div>
             <div class="hero-img-container"><img src="${apiImages[hero.id] || `https://static.playoverwatch.com/heroportrait/${hero.id}.png`}" class="hero-img"></div>
-            <div class="hero-label">${hero.name}</div>`;
+            <div class="hero-label">${heroName(hero.id)}</div>`;
     } else {
-        const label = fixedRole === 'tank' ? 'タンク' : (fixedRole === 'damage' ? 'ダメージ' : (fixedRole === 'support' ? 'サポート' : '（空き）'));
+        const label = fixedRole === "tank" ? t("roles.tank") : (fixedRole === "damage" ? t("roles.damage") : (fixedRole === "support" ? t("roles.support") : t("roles.empty")));
         slot.innerHTML = `<span class="text-[8px] uppercase text-slate-500 font-black">${label}</span>`;
     }
     container.appendChild(slot);
@@ -210,27 +436,27 @@ function calculateTeamAntis() {
         Object.entries(enemyArchTypes).forEach(([arch, count]) => {
             if (count > 0) {
                 const rating = h.matchups[arch] ?? 2;
-                const labelMap = { dive: 'ダイブ', rush: 'ラッシュ', poke: 'ポーク' };
                 const scoreDelta = (rating - 2) * 5 * count * archImpactMultiplier;
+                const archetype = archetypeLabel(arch);
                 antiImpact += scoreDelta;
-                if(rating >= 3) advantageList.push(`${labelMap[arch]}に強い`);
-                else if(rating <= 1) disadvantageList.push(`${labelMap[arch]}に弱い`);
+                if (rating >= 3) advantageList.push(format(t("labels.strongVs"), { archetype }));
+                else if (rating <= 1) disadvantageList.push(format(t("labels.weakVs"), { archetype }));
             }
         });
 
         selectedHeroes.forEach(enemy => {
             const tankMultiplier = (enemy.role === 'tank') ? 1.5 : 1.0;
-            if (h.antis[enemy.name]) {
-                const impactVal = h.antis[enemy.name];
+            if (h.antis[enemy.id]) {
+                const impactVal = h.antis[enemy.id];
                 antiImpact -= (impactVal * 8 * tankMultiplier);
-                const suffix = impactVal === 1 ? "にちょっと弱い" : "に弱い";
-                disadvantageList.push(`${enemy.name}${suffix}`);
+                const labelKey = impactVal === 1 ? "labels.slightWeakAgainst" : "labels.weakAgainst";
+                disadvantageList.push(format(t(labelKey), { name: heroName(enemy.id) }));
             }
-            if (enemy.antis[h.name]) {
-                const impactVal = enemy.antis[h.name];
+            if (enemy.antis[h.id]) {
+                const impactVal = enemy.antis[h.id];
                 antiImpact += (impactVal * 8 * tankMultiplier);
-                const suffix = impactVal === 1 ? "にちょっと強い" : "に強い";
-                advantageList.push(`${enemy.name}${suffix}`);
+                const labelKey = impactVal === 1 ? "labels.slightStrongAgainst" : "labels.strongAgainst";
+                advantageList.push(format(t(labelKey), { name: heroName(enemy.id) }));
             }
         });
 
@@ -272,7 +498,7 @@ function calculateTeamAntis() {
                     </div>
                     <div class="flex-grow min-w-0">
                         <div class="flex justify-between items-start gap-1">
-                            <span class="text-[10px] font-black uppercase text-slate-100 truncate">${h.name}</span>
+                            <span class="text-[10px] font-black uppercase text-slate-100 truncate">${heroName(h.id)}</span>
                             <span class="font-black text-[10px] flex-shrink-0">${displayScore}%</span>
                         </div>
                         <div class="w-full bg-slate-950 h-1 rounded-full overflow-hidden my-1">
@@ -309,7 +535,7 @@ function renderDbTable() {
     const roleOrder = { tank: 1, damage: 2, support: 3 };
     const sorted = [...HERO_DATA].sort((a, b) => {
         if (roleOrder[a.role] !== roleOrder[b.role]) return roleOrder[a.role] - roleOrder[b.role];
-        return a.name.localeCompare(b.name, 'ja');
+        return heroName(a.id).localeCompare(heroName(b.id), currentLang);
     });
     
     let html = `<div class="divide-y divide-slate-900">`;
@@ -318,7 +544,7 @@ function renderDbTable() {
     sorted.forEach(h => {
         if (currentRole !== h.role) {
             currentRole = h.role;
-            const roleLabel = h.role === 'tank' ? 'タンク' : (h.role === 'damage' ? 'ダメージ' : 'サポート');
+            const roleLabel = h.role === "tank" ? t("roles.tank") : (h.role === "damage" ? t("roles.damage") : t("roles.support"));
             const roleBg = h.role === 'tank' ? 'bg-blue-600/10' : (h.role === 'damage' ? 'bg-red-600/10' : 'bg-green-600/10');
             const roleText = h.role === 'tank' ? 'text-blue-400' : (h.role === 'damage' ? 'text-red-400' : 'text-green-400');
             // ロール見出し：pl-4 (左端から16px)
@@ -329,8 +555,8 @@ function renderDbTable() {
         const isDps = h.role === 'damage';
         const rowBg = isTank ? 'bg-blue-950/5' : (isDps ? 'bg-red-950/5' : 'bg-green-950/5');
         
-        const sortedAntis = Object.entries(h.antis).sort((a, b) => a[0].localeCompare(b[0], 'ja'));
-        const antisStr = sortedAntis.map(([k, v]) => `${k}<span class="${v>=4?'text-red-500 font-bold':'text-slate-500'}">(${v})</span>`).join(', ');
+        const sortedAntis = Object.entries(h.antis).sort(([aId], [bId]) => heroName(aId).localeCompare(heroName(bId), currentLang));
+        const antisStr = sortedAntis.map(([id, v]) => `${heroName(id)}<span class="${v>=4?'text-red-500 font-bold':'text-slate-500'}">(${v})</span>`).join(', ');
         const m = h.matchups;
         const getScoreColor = (s) => s >= 3 ? 'text-blue-400' : (s === 1 ? 'text-red-400' : (s === 0 ? 'text-red-600 font-bold' : 'text-slate-500'));
         const matchupHtml = `<div class="flex gap-1 justify-center font-mono text-[9px]"><span class="${getScoreColor(m.dive)}">D:${m.dive}</span><span class="${getScoreColor(m.rush)}">R:${m.rush}</span><span class="${getScoreColor(m.poke)}">P:${m.poke}</span></div>`;
@@ -341,7 +567,7 @@ function renderDbTable() {
                 <div class="w-6 h-6 bg-slate-900 rounded p-0.5 flex-shrink-0">
                     <img src="${apiImages[h.id] || `https://static.playoverwatch.com/heroportrait/${h.id}.png`}" class="w-full h-full object-contain">
                 </div>
-                <span class="font-black text-slate-100 uppercase text-[10px] truncate">${h.name}</span>
+                <span class="font-black text-slate-100 uppercase text-[10px] truncate">${heroName(h.id)}</span>
             </div>
             <div class="col-span-3 py-2 text-center border-r border-slate-900">${matchupHtml}</div>
             <div class="col-span-5 pl-4 py-3 text-slate-300 text-[10px] leading-relaxed font-medium">${antisStr || '-'}</div>
@@ -350,3 +576,10 @@ function renderDbTable() {
     container.innerHTML = html + `</div>`;
 }
 function clearTeam() { selectedHeroes = []; updateUI(); }
+
+window.toggleRoleQueue = toggleRoleQueue;
+window.changeTab = changeTab;
+window.openDbModal = openDbModal;
+window.closeDbModal = closeDbModal;
+window.toggleExpand = toggleExpand;
+window.clearTeam = clearTeam;

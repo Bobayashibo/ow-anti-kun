@@ -1,4 +1,5 @@
 # ow-anti-kun
+English: [README.en.md](README.en.md)
 敵の構成を入力すると、推奨アンチピックをランキング表示します。
 # OWアンチくん (OW Counter Picker)
 
