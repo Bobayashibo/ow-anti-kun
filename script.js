@@ -8,7 +8,7 @@ const DEFAULT_HERO_DATA = [
     { id: "ramattra", name: "ラマットラ", role: "tank", archetype: 'rush', matchups: { dive: 1, rush: 2, poke: 3 }, antis: { "オリーサ": 2, "ハザード": 2, "ゼニヤッタ": 3 } },
     { id: "reinhardt", name: "ラインハルト", role: "tank", archetype: 'rush', matchups: { dive: 3, rush: 2, poke: 3 }, antis: { "シグマ": 1, "オリーサ": 1, "ラマットラ": 3, "ファラ": 2, "エコー": 2, "ルシオ": 1, "バスティオン": 3, "ロードホッグ": 2 } },
     { id: "roadhog", name: "ロードホッグ", role: "tank", archetype: 'null', matchups: { dive: 2, rush: 3, poke: 3 }, antis: { "オリーサ": 3, "マウガ": 2, "ソジョーン": 2, "ハンゾー": 2, "フレイヤ": 1, "アナ": 3 } },
-    { id: "sigma", name: "シグマ", role: "tank", archetype: 'poke', matchups: { dive: 3, rush: 3, poke: 1 }, antis: { "ラインハルト": 1, "ラマットラ": 2, "ドゥームフィスト": 2, "ベンチャー": 1, "メイ": 2, "ウィンストン": 3, "ゲンジ": 2, "ソンブラ": 3 } },
+    { id: "sigma", name: "シグマ", role: "tank", archetype: 'poke', matchups: { dive: 3, rush: 3, poke: 1 }, antis: { "ラインハルト": 1, "ラマットラ": 2, "ドゥームフィスト": 2, "ザリア": 2, "ベンチャー": 1, "メイ": 2, "ウィンストン": 3, "ゲンジ": 2, "ソンブラ": 3, "シンメトラ": 3, } },
     { id: "winston", name: "ウィンストン", role: "tank", archetype: 'dive', matchups: { dive: 2, rush: 3, poke: 1 }, antis: { "D.Va": 3, "キャスディ": 3, "ジャンカークイーン": 3, "トールビョーン": 3, "ブリギッテ": 2, "リーパー": 4, "ロードホッグ": 2 } },
     { id: "wrecking-ball", name: "レッキング・ボール", role: "tank", archetype: 'dive', matchups: { dive: 2, rush: 2, poke: 1 }, antis: { "マウガ": 2, "キャスディ": 2, "ロードホッグ": 2, "トレーサー": 2, "ソンブラ": 3 } },
     { id: "zarya", name: "ザリア", role: "tank", archetype: 'rush', matchups: { dive: 2, rush: 2, poke: 2 }, antis: { "ウィンストン": 1, "メイ": 2, "ファラ": 2, "ラマットラ": 2, "ライフウィーバー": 1, "エコー": 2, "ラインハルト": 2 } },
@@ -523,5 +523,6 @@ function toggleExpand(role) {
         arrow.classList.toggle('open', isOpen);
     }
 }
+
 
 function clearTeam() { selectedHeroes = []; updateUI(); }
